@@ -41,26 +41,26 @@ provider:
       Action:
         - "ssm:GetParameter"
       Resource:
-        - - Fn::Join:
-            - ""
-            - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
-              - !Ref S3BucketSsmParameter
-    # - Effect: "Allow"
-    #   Action:
-    #     - "ssm:GetParameter"
-    #   Resource:
-    #     Fn::Join:
-    #       - ""
-    #       - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
-    #         - !Ref InboundQueueUrlSsmParameter
-    # - Effect: "Allow"
-    #   Action:
-    #     - "ssm:GetParameter"
-    #   Resource:
-    #     Fn::Join:
-    #       - ""
-    #       - - "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
-    #         - !Ref SnsTopicArnSsmParameter
+        Fn::Join:
+          - ""
+          - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+            - !Ref S3BucketSsmParameter
+    - Effect: "Allow"
+      Action:
+        - "ssm:GetParameter"
+      Resource:
+        Fn::Join:
+          - ""
+          - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+            - !Ref InboundQueueUrlSsmParameter
+    - Effect: "Allow"
+      Action:
+        - "ssm:GetParameter"
+      Resource:
+        Fn::Join:
+          - ""
+          - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+            - !Ref SnsTopicArnSsmParameter
 
 #    - Effect: "Allow"
 #      Action:
