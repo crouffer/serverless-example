@@ -23,17 +23,45 @@ frameworkVersion: '2'
 provider:
   name: aws
   runtime: python3.8
+  environment:
+    SSM_PARAMETER_S3_BUCKET_NAME:
+      Ref : S3BucketSsmParameter
+    SSM_PARAMETER_INBOUND_QUEUE_URL:
+      Ref : InboundQueueUrlSsmParameter
+    SSM_PARAMETER_SNS_TOPIC_ARN:
+      Ref : SnsTopicArnSsmParameter
 
 # you can overwrite defaults here
 #  stage: dev
 #  region: us-east-1
 
 # you can add statements to the Lambda function's IAM Role here
-#  iamRoleStatements:
-#    - Effect: "Allow"
-#      Action:
-#        - "s3:ListBucket"
-#      Resource: { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ServerlessDeploymentBucket" } ] ]  }
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "ssm:GetParameter"
+      Resource:
+        Fn::Join:
+          - ""
+          - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+            - !Ref S3BucketSsmParameter
+    # - Effect: "Allow"
+    #   Action:
+    #     - "ssm:GetParameter"
+    #   Resource:
+    #     Fn::Join:
+    #       - ""
+    #       - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+    #         - !Ref InboundQueueUrlSsmParameter
+    # - Effect: "Allow"
+    #   Action:
+    #     - "ssm:GetParameter"
+    #   Resource:
+    #     Fn::Join:
+    #       - ""
+    #       - - "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+    #         - !Ref SnsTopicArnSsmParameter
+
 #    - Effect: "Allow"
 #      Action:
 #        - "s3:PutObject"
@@ -59,11 +87,14 @@ provider:
 
 functions:
   service_mapper_1:
-    handler: handler.service_mapper_1
+    handler: handler.from_service_mapper_1
   service_mapper_2:
-    handler: handler.service_mapper_2
+    handler: handler.from_service_mapper_2
   sync_service:
     handler: handler.sync_service
+    events:
+      - sqs:
+          arn: !GetAtt InboundQueue.Arn
 
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
@@ -106,12 +137,35 @@ functions:
 #      variable2: value2
 
 # you can add CloudFormation resource templates here
-#resources:
-#  Resources:
-#    NewResource:
-#      Type: AWS::S3::Bucket
-#      Properties:
-#        BucketName: my-new-bucket
+resources:
+  Resources:
+    DeadLetterQueue:
+      Type: AWS::SQS::Queue
+    InboundQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        RedrivePolicy: 
+          deadLetterTargetArn:
+            Fn::GetAtt: DeadLetterQueue.Arn
+          maxReceiveCount : 10
+    InboundQueueUrlSsmParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Type: String
+        Value: !Ref InboundQueue
+    S3BucketSsmParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Type: String
+        Value: !Ref ServerlessDeploymentBucket
+    SNSTopic:
+      Type: AWS::SNS::Topic
+    SnsTopicArnSsmParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Type: String
+        Value: !Ref SNSTopic
+
 #  Outputs:
 #     NewOutput:
 #       Description: "Description for the output"

@@ -4,7 +4,8 @@
   "description": "Serverless example demonstrating lambda, sns, sqs, ssm",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "service_1_local": "serverless invoke local -f service_mapper_1 -p test_event_api.json"
   },
   "repository": {
     "type": "git",
