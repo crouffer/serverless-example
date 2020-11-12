@@ -41,10 +41,10 @@ provider:
       Action:
         - "ssm:GetParameter"
       Resource:
-        Fn::Join:
-          - ""
-          - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
-            - !Ref S3BucketSsmParameter
+        - - Fn::Join:
+            - ""
+            - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
+              - !Ref S3BucketSsmParameter
     # - Effect: "Allow"
     #   Action:
     #     - "ssm:GetParameter"
