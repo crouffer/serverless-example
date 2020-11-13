@@ -61,6 +61,14 @@ provider:
           - ""
           - - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/"
             - !Ref SnsTopicArnSsmParameter
+    - Effect: "Allow"
+      Action:
+        - "sns:Publish"
+      Resource:
+        Fn::Join:
+          - ""
+          - - Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:"
+            - !GetAtt SnsTopic.TopicName
 
 #    - Effect: "Allow"
 #      Action:
@@ -86,10 +94,20 @@ provider:
 #    - exclude-me-dir/**
 
 functions:
-  service_mapper_1:
-    handler: handler.from_service_mapper_1
-  service_mapper_2:
-    handler: handler.from_service_mapper_2
+  from_service_1:
+    handler: handler.from_service_1
+  to_service_1:
+    handler: handler.to_service_1
+    events:
+      - sqs:
+          arn: !GetAtt Service1Queue.Arn
+  from_service_2:
+    handler: handler.from_service_2
+  to_service_2:
+    handler: handler.to_service_2
+    events:
+      - sqs:
+          arn: !GetAtt Service2Queue.Arn
   sync_service:
     handler: handler.sync_service
     events:
@@ -158,13 +176,43 @@ resources:
       Properties:
         Type: String
         Value: !Ref ServerlessDeploymentBucket
-    SNSTopic:
+    Service1Queue:
+      Type: AWS::SQS::Queue
+      Properties:
+        RedrivePolicy: 
+          deadLetterTargetArn:
+            Fn::GetAtt: DeadLetterQueue.Arn
+          maxReceiveCount : 10
+    Service1QueueSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref SnsTopic
+        Endpoint: !GetAtt Service1Queue.Arn
+        Protocol: sqs
+        RawMessageDelivery: 'true'
+    Service2Queue:
+      Type: AWS::SQS::Queue
+      Properties:
+        RedrivePolicy: 
+          deadLetterTargetArn:
+            Fn::GetAtt: DeadLetterQueue.Arn
+          maxReceiveCount : 10
+    Service2QueueSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref SnsTopic
+        Endpoint: !GetAtt Service2Queue.Arn
+        Protocol: sqs
+        RawMessageDelivery: 'true'
+    SnsTopic:
       Type: AWS::SNS::Topic
     SnsTopicArnSsmParameter:
       Type: AWS::SSM::Parameter
       Properties:
         Type: String
-        Value: !Ref SNSTopic
+        Value: !Ref SnsTopic
+    # CHRIS - The Service Queues need to allow the SNS topic to write to them.  Look at RJ's thing if you get stuck
+
 
 #  Outputs:
 #     NewOutput:

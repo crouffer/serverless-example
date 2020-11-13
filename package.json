@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "service_1_local": "serverless invoke local -f service_mapper_1 -p test_event_api.json"
+    "from_service_1_local": "serverless invoke local -f from_service_1 -p test_event_api.json"
   },
   "repository": {
     "type": "git",
