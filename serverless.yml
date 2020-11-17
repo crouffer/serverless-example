@@ -20,6 +20,9 @@ app: crouffer-serverless-example
 # Check out our docs for more details
 frameworkVersion: '2'
 
+plugins:
+  - serverless-step-functions
+
 provider:
   name: aws
   runtime: python3.8
@@ -29,7 +32,7 @@ provider:
     SSM_PARAMETER_INBOUND_QUEUE_URL:
       Ref : InboundQueueUrlSsmParameter
     SSM_PARAMETER_SNS_TOPIC_ARN:
-      Ref : SnsTopicArnSsmParameter
+      Ref : SnsTopicArnSsmParameter    
 
 # you can overwrite defaults here
 #  stage: dev
@@ -37,6 +40,11 @@ provider:
 
 # you can add statements to the Lambda function's IAM Role here
   iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "states:SendTaskFailure"
+        - "states:SendTaskSuccess"
+      Resource: "arn:aws:states:us-east-1:033369359363:stateMachine:MonitorUnderscorestepUnderscorefunctionStepFunctionsStateMachine-1k8jFfmKuwgf"
     - Effect: "Allow"
       Action:
         - "ssm:GetParameter"
@@ -96,15 +104,27 @@ provider:
 functions:
   from_service_1:
     handler: handler.from_service_1
+    environment:
+      SERVICE_NAME: "from_service_1"
   to_service_1:
     handler: handler.to_service_1
+    environment:
+      SERVICE_NAME: "to_service_1"
+      SERVICE_QUEUE_URL:
+        Ref: Service1Queue
     events:
       - sqs:
           arn: !GetAtt Service1Queue.Arn
   from_service_2:
     handler: handler.from_service_2
+    environment:
+      SERVICE_NAME: "from_service_2"
   to_service_2:
     handler: handler.to_service_2
+    environment:
+      SERVICE_NAME: "to_service_2"
+      SERVICE_QUEUE_URL:
+        Ref: Service2Queue
     events:
       - sqs:
           arn: !GetAtt Service2Queue.Arn
@@ -113,13 +133,76 @@ functions:
     events:
       - sqs:
           arn: !GetAtt InboundQueue.Arn
-  healthcheck:
-    handler: handler.healthcheck
+  health_check:
+    handler: handler.health_check
     memorySize: 128
     timeout: 5
     events:
         - schedule: rate(1 minute)
 
+# Documentation: https://www.serverless.com/plugins/serverless-step-functions
+stepFunctions:
+  validate: true
+  stateMachines:
+    monitor_step_function:
+      events:
+        - schedule:
+            rate: rate(1 minute)
+            enabled: true
+      definition:
+        StartAt: WaitForResponsesFromOutgoingServices
+        States:
+          WaitForResponsesFromOutgoingServices:
+            Type: Parallel
+            Next: FinalState
+            Branches:
+            - StartAt: TestToService1
+              States:
+                TestToService1:
+                  Type: Task
+                  Resource: arn:aws:states:::sqs:sendMessage.waitForTaskToken
+                  TimeoutSeconds: 30
+                  Parameters:
+                    QueueUrl:
+                      Ref: InboundQueue
+                    MessageBody:
+                      input.$: "$"
+                      taskToken.$: "$$.Task.Token"
+                      testTarget: "to_service_1"
+                  End: true
+            - StartAt: TestToService2
+              States:
+                TestToService2:
+                  Type: Task
+                  Resource: arn:aws:states:::sqs:sendMessage.waitForTaskToken
+                  TimeoutSeconds: 30
+                  Parameters:
+                    QueueUrl:
+                      Ref: InboundQueue
+                    MessageBody:
+                      input.$: "$"
+                      taskToken.$: "$$.Task.Token"
+                      testTarget: "to_service_2"
+                  End: true
+          FinalState:
+            Type: Pass
+            End: true
+
+          
+      alarms:
+        topics:
+          ok: !Ref SnsTopicStepFunctionOk
+          alarm: !Ref SnsTopicStepFunctionAlarm
+          insufficientData: !Ref SnsTopicStepFunctionInsufficientData
+        metrics:
+          - executionsTimedOut
+          - executionsFailed
+          - executionsAborted
+          - metric: executionThrottled
+            treatMissingData: breaching # overrides below default
+          - executionsSucceeded
+        treatMissingData: ignore # optional
+          
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
@@ -217,6 +300,12 @@ resources:
       Properties:
         Type: String
         Value: !Ref SnsTopic
+    SnsTopicStepFunctionOk:
+      Type: AWS::SNS::Topic
+    SnsTopicStepFunctionAlarm:
+      Type: AWS::SNS::Topic
+    SnsTopicStepFunctionInsufficientData:
+      Type: AWS::SNS::Topic
     QueuePolicy:
       Type: AWS::SQS::QueuePolicy
       Properties:

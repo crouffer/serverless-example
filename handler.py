@@ -3,25 +3,24 @@ from datetime import datetime
 import hashlib
 import json
 import os
+import random
 
 def get_value_from_ssm(env_var:str) -> str:
     return ssm_client.get_parameter(Name=os.getenv(env_var, None))['Parameter']['Value']
 
-# Service Names
-SERVICE_1='example-service-1'
-SERVICE_2='example-service-2'
-
-
-# Boto Clients
+# Boto3 Clients
 s3_client = boto3.client('s3')
 sns_client = boto3.client('sns')
 sqs_client = boto3.client('sqs')
 ssm_client = boto3.client('ssm')
+sfn_client = boto3.client('stepfunctions')
 
 
 INBOUND_QUEUE_URL=get_value_from_ssm(env_var='SSM_PARAMETER_INBOUND_QUEUE_URL')
 S3_BUCKET=get_value_from_ssm(env_var='SSM_PARAMETER_S3_BUCKET_NAME')
 SNS_TOPIC_ARN=get_value_from_ssm(env_var='SSM_PARAMETER_SNS_TOPIC_ARN')
+SERVICE_NAME=os.getenv("SERVICE_NAME")
+SERVICE_QUEUE_URL=os.getenv("SERVICE_QUEUE_URL")
 
 def json_to_string(json_object):
     return str(json.dumps(json_object))
@@ -68,9 +67,8 @@ def service_to_sync_helper(service_name: str, event: object, transform_function:
     print("END:  service_to_sync_helper")
 
 def from_service_1(event, context):
-
     service_to_sync_helper(
-        service_name=SERVICE_1,
+        service_name=SERVICE_NAME,
         event=event,
         transform_function=default_transform
     )
@@ -80,7 +78,7 @@ def from_service_1(event, context):
 def from_service_2(event, context):
 
     service_to_sync_helper(
-        service_name=SERVICE_2,
+        service_name=SERVICE_NAME,
         event=event,
         transform_function=default_transform
     )
@@ -88,28 +86,38 @@ def from_service_2(event, context):
     return 200
 
 def sync_to_service_helper(service_name: str, event: object, transform_function: object):
+
     print(f"sync_to_service_helper: service_name = {service_name}")
     print(f"event = {event}")
 
     for record in event['Records']:
         json_object = json.loads(record['body'])
         print(f'json_object={json_object}')
-        if service_name == json_object['origin']:
-            print(f"{service_name} is source of this event.  Skipping")
-            next
+        print(f'Before: type(json_object)={type(json_object)}')
+        if not isinstance(json_object, dict):
+            json_object = json.loads(json_object)
+        print(f'After: type(json_object)={type(json_object)}')
+ 
+        # Process the test event, if applicable
+        if 'testTarget' in json_object:
+            if json_object['testTarget'] == service_name:
+                sfn_client.send_task_success(taskToken=json_object['taskToken'], output=json.dumps(record))
         else:
-            print('TODO: Process the record')
+            if json_object['origin'] != service_name:
+                print('TODO: Process the record')
+
+        delete_message_from_queue(queue_url=SERVICE_QUEUE_URL, record=record)
 
 def to_service_1(event, context):
     sync_to_service_helper(
-        service_name=SERVICE_1,
+        service_name=SERVICE_NAME,
         event=event,
         transform_function=default_transform
     )
 
 def to_service_2(event, context):
     sync_to_service_helper(
-        service_name=SERVICE_2,
+        service_name=SERVICE_NAME,
         event=event,
         transform_function=default_transform
     )
@@ -141,3 +149,12 @@ def sync_service(event, context):
 
         delete_message_from_queue(queue_url=INBOUND_QUEUE_URL, record=record)
     print("END: sync_service")
+
+def health_check(event, context):
+    print("Intentionally Fail to test the alarm")
+
+    simulate_failure : bool = bool(random.getrandbits(1))
+    if simulate_failure:
+        raise RuntimeError("Simulated Failure to test alarms")
+    else:
+        raise NotImplementedError("healthcheck not implemented")

@@ -19,5 +19,8 @@
   "homepage": "https://github.com/crouffer/serverless-example#readme",
   "dependencies": {
     "serverless": "^2.11.1"
+  },
+  "devDependencies": {
+    "serverless-step-functions": "^2.28.0"
   }
 }
