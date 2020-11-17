@@ -8,7 +8,7 @@ def get_value_from_ssm(env_var:str) -> str:
     return ssm_client.get_parameter(Name=os.getenv(env_var, None))['Parameter']['Value']
 
 # Service Names
-SERVICE_1='example-service-1',
+SERVICE_1='example-service-1'
 SERVICE_2='example-service-2'
 
 
@@ -40,9 +40,13 @@ def write_to_s3(service_name: str, json_object: object):
         Key=key)
 
 def send_to_inbound_queue(service_name: str, json_object: object):
+    message = {
+        'origin': service_name,
+        'body': json_object
+    }
     sqs_client.send_message(
         QueueUrl=INBOUND_QUEUE_URL,
-        MessageBody=json_to_string(json_object)
+        MessageBody=json_to_string(message)
     )
 
 def default_transform(event):
@@ -86,7 +90,15 @@ def from_service_2(event, context):
 def sync_to_service_helper(service_name: str, event: object, transform_function: object):
     print(f"sync_to_service_helper: service_name = {service_name}")
     print(f"event = {event}")
-    pass
+
+    for record in event['Records']:
+        json_object = json.loads(record['body'])
+        print(f'json_object={json_object}')
+        if service_name == json_object['origin']:
+            print(f"{service_name} is source of this event.  Skipping")
+            next
+        else:
+            print('TODO: Process the record')
 
 def to_service_1(event, context):
     sync_to_service_helper(

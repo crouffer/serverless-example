@@ -113,6 +113,12 @@ functions:
     events:
       - sqs:
           arn: !GetAtt InboundQueue.Arn
+  healthcheck:
+    handler: handler.healthcheck
+    memorySize: 128
+    timeout: 5
+    events:
+        - schedule: rate(1 minute)
 
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
@@ -211,8 +217,32 @@ resources:
       Properties:
         Type: String
         Value: !Ref SnsTopic
-    # CHRIS - The Service Queues need to allow the SNS topic to write to them.  Look at RJ's thing if you get stuck
-
+    QueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref Service1Queue
+          - !Ref Service2Queue
+        PolicyDocument:  {
+          "Version": "2012-10-17",
+          "Id": "Policy1596186813341",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "sns.amazonaws.com"
+              },
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:SendMessageBatch"
+              ],
+              "Resource": [
+                !GetAtt Service1Queue.Arn,
+                !GetAtt Service2Queue.Arn,
+              ]
+            }
+          ]
+        }
 
 #  Outputs:
 #     NewOutput:
