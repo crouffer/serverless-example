@@ -42,8 +42,17 @@ provider:
   iamRoleStatements:
     - Effect: "Allow"
       Action:
+        - "s3:PutObject"
+      Resource:
+        Fn::Join:
+            - ""
+            - - !GetAtt ServerlessDeploymentBucket.Arn
+              - "/*"
+    - Effect: "Allow"
+      Action:
         - "states:SendTaskFailure"
         - "states:SendTaskSuccess"
+      # TODO: Fix this hardcoded value
       Resource: "arn:aws:states:us-east-1:033369359363:stateMachine:MonitorUnderscorestepUnderscorefunctionStepFunctionsStateMachine-1k8jFfmKuwgf"
     - Effect: "Allow"
       Action:
@@ -77,7 +86,10 @@ provider:
           - ""
           - - Fn::Sub: "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:"
             - !GetAtt SnsTopic.TopicName
-
+    - Effect: "Allow"
+      Action:
+        - "sqs:SendMessage"
+      Resource: !GetAtt InboundQueue.Arn
 #    - Effect: "Allow"
 #      Action:
 #        - "s3:PutObject"
@@ -106,6 +118,10 @@ functions:
     handler: handler.from_service_1
     environment:
       SERVICE_NAME: "from_service_1"
+    events:
+      - sns:
+          arn: !Ref SnsTopicTestIncomingLambdas
+          topicName: "TestIncomingLambdas"
   to_service_1:
     handler: handler.to_service_1
     environment:
@@ -119,6 +135,10 @@ functions:
     handler: handler.from_service_2
     environment:
       SERVICE_NAME: "from_service_2"
+    events:
+      - sns:
+          arn: !Ref SnsTopicTestIncomingLambdas
+          topicName: "TestIncomingLambdas"
   to_service_2:
     handler: handler.to_service_2
     environment:
@@ -150,11 +170,11 @@ stepFunctions:
             rate: rate(1 minute)
             enabled: true
       definition:
-        StartAt: WaitForResponsesFromOutgoingServices
+        StartAt: TestOutgoingLambdas
         States:
-          WaitForResponsesFromOutgoingServices:
+          TestOutgoingLambdas:
             Type: Parallel
-            Next: FinalState
+            Next: TestIncomingLambdas
             Branches:
             - StartAt: TestToService1
               States:
@@ -166,7 +186,7 @@ stepFunctions:
                     QueueUrl:
                       Ref: InboundQueue
                     MessageBody:
-                      input.$: "$"
+                      # input.$: "$"
                       taskToken.$: "$$.Task.Token"
                       testTarget: "to_service_1"
                   End: true
@@ -180,10 +200,42 @@ stepFunctions:
                     QueueUrl:
                       Ref: InboundQueue
                     MessageBody:
-                      input.$: "$"
+                      # input.$: "$"
                       taskToken.$: "$$.Task.Token"
                       testTarget: "to_service_2"
                   End: true
+          TestIncomingLambdas:
+            Type: Parallel
+            Next: FinalState
+            Branches:
+              - StartAt: TestFromService1
+                States:
+                  TestFromService1:
+                    Type: Task
+                    Resource: arn:aws:states:::sns:publish.waitForTaskToken
+                    TimeoutSeconds: 30
+                    Parameters:
+                      TopicArn:
+                        Ref: SnsTopicTestIncomingLambdas
+                      Message:
+                        # input.$: "$"
+                        taskToken.$: "$$.Task.Token"
+                        testTarget: "from_service_1" # TODO: put names in custom object
+                    End: true
+              - StartAt: TestFromService2
+                States:
+                  TestFromService2:
+                    Type: Task
+                    Resource: arn:aws:states:::sns:publish.waitForTaskToken
+                    TimeoutSeconds: 30
+                    Parameters:
+                      TopicArn:
+                        Ref: SnsTopicTestIncomingLambdas
+                      Message:
+                        # input.$: "$"
+                        taskToken.$: "$$.Task.Token"
+                        testTarget: "from_service_2" # TODO: put names in custom object
+                    End: true
           FinalState:
             Type: Pass
             End: true
@@ -305,6 +357,8 @@ resources:
     SnsTopicStepFunctionAlarm:
       Type: AWS::SNS::Topic
     SnsTopicStepFunctionInsufficientData:
+      Type: AWS::SNS::Topic
+    SnsTopicTestIncomingLambdas:
       Type: AWS::SNS::Topic
     QueuePolicy:
       Type: AWS::SQS::QueuePolicy

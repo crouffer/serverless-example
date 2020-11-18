@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import random
+import time
 
 def get_value_from_ssm(env_var:str) -> str:
     return ssm_client.get_parameter(Name=os.getenv(env_var, None))['Parameter']['Value']
@@ -22,6 +23,19 @@ SNS_TOPIC_ARN=get_value_from_ssm(env_var='SSM_PARAMETER_SNS_TOPIC_ARN')
 SERVICE_NAME=os.getenv("SERVICE_NAME")
 SERVICE_QUEUE_URL=os.getenv("SERVICE_QUEUE_URL")
 
+current_millisecond_time = lambda: int(round(time.time() * 1000))
+
+def trace(function):
+    def inner_function(*args, **kwargs):
+        print(f"BEGIN: {function.__name__}")
+        begin = current_millisecond_time()
+        retval = function(*args, **kwargs)
+        end = current_millisecond_time()
+        ms = (end - begin)
+        print(f"END: {function.__name__} duration = {ms}ms")
+        return retval
+    return inner_function
+
 def json_to_string(json_object):
     return str(json.dumps(json_object))
 
@@ -31,8 +45,11 @@ def get_md5sum_of_object(json_object: object) -> str:
 def get_timestamp() -> int:
     return int(datetime.utcnow().timestamp())
 
+@trace
 def write_to_s3(service_name: str, json_object: object):
     key = f"{service_name}/{get_timestamp()}_{get_md5sum_of_object(json_object)}"
+    print(f"S3_BUCKET = {S3_BUCKET}")
+    print(f"key = {key}")
     s3_client.put_object(
         Body=json_to_string(json_object),
         Bucket=S3_BUCKET,
@@ -51,20 +68,35 @@ def send_to_inbound_queue(service_name: str, json_object: object):
 def default_transform(event):
     return event
 
+@trace
 def service_to_sync_helper(service_name: str, event: object, transform_function: object) -> None:
 
-    print("BEGIN:  service_to_sync_helper")
-    print(f"Processing event from Service: {service_name} - {event}")
+    print(f"Processing event from Service: {service_name}")
 
-    # Save the incoming data to S3
-    write_to_s3(service_name=service_name, json_object=event)
+    for record in event['Records']:
+        print(f"{json.dumps(record)}")
+        if record['EventSource'] == 'aws:sns':
+            json_object = json.loads(record['Sns']['Message'])
+            print(f'json_object={json_object}')
+            print(f'Before: type(json_object)={type(json_object)}')
+            if not isinstance(json_object, dict):
+                json_object = json.loads(json_object)
+            print(f'After: type(json_object)={type(json_object)}')
+        else:
+            raise NotImplementedError("Only aws:sns supported right now")
 
-    # Add your data processing here
-    output_data=transform_function(event)
+        # Save the incoming data to S3
+        write_to_s3(service_name=service_name, json_object=json_object)
 
-    # Send the input data to the inbound message queue
-    send_to_inbound_queue(service_name=service_name, json_object=output_data)
-    print("END:  service_to_sync_helper")
+        # Add your data processing here
+        output_data=transform_function(json_object)
+
+        # Send the input data to the inbound message queue
+        send_to_inbound_queue(service_name=service_name, json_object=output_data)
+
+        if 'testTarget' in json_object:
+            if json_object['testTarget'] == service_name:
+                sfn_client.send_task_success(taskToken=json_object['taskToken'], output=json.dumps(output_data))
 
 def from_service_1(event, context):
     service_to_sync_helper(
